@@ -82,6 +82,24 @@
   .soundbtn:hover,.soundbtn:focus-visible{color:var(--chalk); border-color:var(--chalk-dim); outline:none;}
   .soundbtn.on{color:var(--chalk-yellow); border-color:var(--chalk-yellow);}
 
+  /* 수동 단계 이동 */
+  .ctrl{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:26px;}
+  .ctrl button{
+    flex:1; min-width:120px;
+    background:rgba(0,0,0,.18); border:1.5px solid var(--line); color:var(--chalk);
+    font-family:inherit; font-size:15px; font-weight:700;
+    padding:13px 14px; border-radius:8px; cursor:pointer;
+  }
+  .ctrl button:hover,.ctrl button:focus-visible{border-color:var(--chalk-yellow); color:var(--chalk-yellow); outline:none;}
+  .ctrl button:active{transform:translateY(1px);}
+  .ctrl button.auto{border-style:dashed; color:var(--chalk-dim); font-weight:600;}
+  .ctrl button.auto.armed{border-color:var(--now); color:var(--now); border-style:solid;}
+  .manualbadge{
+    display:inline-block; font-size:11px; letter-spacing:.12em;
+    border:1px solid var(--chalk-yellow); color:var(--chalk-yellow);
+    border-radius:4px; padding:1px 8px; margin-left:8px; vertical-align:middle;
+  }
+
   /* 남은 수업 카운터 */
   .sessions{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:30px;}
   .chip{
@@ -183,11 +201,17 @@
     <button class="soundbtn" id="soundBtn" type="button">🔕 알림음 꺼짐 — 눌러서 켜기</button>
   </div>
 
+  <div class="ctrl" id="ctrl" hidden>
+    <button type="button" id="prevBtn">◀ 이전 단계</button>
+    <button type="button" id="nextBtn">다음 단계 ▶</button>
+    <button type="button" id="autoBtn" class="auto armed">⟲ 원래 시간표</button>
+  </div>
+
   <div class="sessions" id="sessions"></div>
 
   <div id="content"></div>
 
-  <footer>10분 전·5분 전 자동 예고 / 진행 중 임무 자동 하이라이트 · 조교매뉴얼 0724초안 기준</footer>
+  <footer>10분 전·5분 전 자동 예고 · 단계를 넘기면 그 시각부터 원래 소요시간으로 재계산 · 조교매뉴얼 0724초안 기준</footer>
 </div>
 
 <script>
@@ -198,7 +222,6 @@
   var CLASS_DATES = ["2026-07-25","2026-08-01","2026-08-08","2026-08-15"];
   var LAST = "2026-08-15";
 
-  // ── 연구조교 타임테이블 (분 단위, 자정 기준) ──
   function m(h,mm){return h*60+mm;}
   var SCHEDULE = [
     { s:m(13,30), e:m(14,10), name:"수업 전 · 테스트", tag:"위치 고정",
@@ -208,12 +231,12 @@
       ]},
     { s:m(14,10), e:m(14,20), name:"시간 알림", tag:"14:10",
       tasks:[
-        {t:"행정조교 · 고세종T에게 시간 알림 (14:10)",k:true},
+        {t:"행정조교 · 고세종T에게 시간 알림",k:true},
         {t:"강의 관찰 계속",k:false}
       ]},
     { s:m(14,20), e:m(14,30), name:"답안지 수거 · 수업 준비", tag:"10분",
       tasks:[
-        {t:"서술형 답안지 인수 (~14:30)",k:true}
+        {t:"서술형 답안지 인수",k:true}
       ]},
     { s:m(14,30), e:m(15,0), name:"1교시", tag:"30분",
       tasks:[
@@ -250,7 +273,7 @@
         {t:"지각생 답안지 서술형 채점",k:true}
       ]}
   ];
-
+  var LEN=SCHEDULE.length;
   var WARN=[10,5]; // 분 전 예고
   var soundOn=false, audioCtx=null, lastBeepKey="";
 
@@ -258,16 +281,14 @@
   var pad=function(n){return (n<10?"0":"")+n;};
   var DAYS=["일","월","화","수","목","금","토"];
 
-  function dateKey(d){
-    return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
-  }
-  function fmtHM(min){return pad(Math.floor(min/60))+":"+pad(min%60);}
+  function dateKey(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());}
+  function fmtHM(minF){var t=Math.round(minF); return pad(Math.floor(t/60)%24)+":"+pad(t%60);}
 
   function nextClassDate(now){
     for(var i=0;i<CLASS_DATES.length;i++){
       var p=CLASS_DATES[i].split("-");
-      var end=new Date(+p[0],+p[1]-1,+p[2],17,45,0);
-      if(now<=end) return {key:CLASS_DATES[i], date:new Date(+p[0],+p[1]-1,+p[2],13,0,0), idx:i};
+      var end=new Date(+p[0],+p[1]-1,+p[2],23,59,59);
+      if(now<=end) return {key:CLASS_DATES[i], date:new Date(+p[0],+p[1]-1,+p[2],13,30,0), idx:i};
     }
     return null;
   }
@@ -285,6 +306,7 @@
       o.start(); o.stop(audioCtx.currentTime+0.65);
     }catch(e){}
   }
+  function maybeBeep(key){if(key!==lastBeepKey){lastBeepKey=key; beep();}}
 
   $("soundBtn").addEventListener("click",function(){
     soundOn=!soundOn;
@@ -293,11 +315,71 @@
     if(soundOn) beep();
   });
 
+  // ── 단계 시프트: 버튼으로 넘기면 그 시각부터 원래 소요시간대로 재시작 ──
+  var shift=null; // {idx: 시작 단계, t0: 그 단계가 시작된 시각(분, 소수점=초)}
+  function store(k,v){try{if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v);}catch(e){}}
+  function load(k){try{return localStorage.getItem(k);}catch(e){return null;}}
+  function shiftKey(now){return "ta-shift-"+dateKey(now);}
+  (function(){ // 새로고침해도 오늘의 조정 상태 유지
+    var v=load(shiftKey(new Date()));
+    if(v){
+      var a=v.split(",");
+      var i=parseInt(a[0],10), t=parseFloat(a[1]);
+      if(!isNaN(i)&&!isNaN(t)&&i>=0&&i<LEN) shift={idx:i,t0:t};
+    }
+  })();
+  function setShift(s){
+    shift=s;
+    store(shiftKey(new Date()), s?(s.idx+","+s.t0):null);
+    lastBeepKey="";
+    tick();
+  }
+
+  // 조정 반영된 시간표: shift.idx부터 t0 기준으로 원래 소요시간을 연쇄 적용
+  function effBlocks(){
+    var arr=[],i;
+    for(i=0;i<LEN;i++) arr.push({s:SCHEDULE[i].s,e:SCHEDULE[i].e});
+    if(shift){
+      var t=shift.t0;
+      for(i=shift.idx;i<LEN;i++){
+        var d=SCHEDULE[i].e-SCHEDULE[i].s;
+        arr[i]={s:t,e:t+d}; t+=d;
+      }
+    }
+    return arr;
+  }
+  // 현재 단계: -1(시작 전) ~ LEN(전체 종료)
+  function curIdx(nowF,eff){
+    var start=shift?shift.idx:0;
+    if(nowF<eff[start].s) return shift?start:-1; // 조정 직후엔 항상 해당 단계
+    for(var i=start;i<LEN;i++){
+      if(nowF>=eff[i].s && nowF<eff[i].e) return i;
+    }
+    return nowF<eff[start].s?-1:LEN;
+  }
+
+  $("nextBtn").addEventListener("click",function(){
+    var now=new Date(), nowF=now.getHours()*60+now.getMinutes()+now.getSeconds()/60;
+    var ci=curIdx(nowF,effBlocks());
+    var base=Math.min(Math.max(ci,-1),LEN-1);
+    var target=Math.min(base+1,LEN-1);
+    if(target===ci) return; // 이미 마지막 단계
+    setShift({idx:target,t0:nowF});
+  });
+  $("prevBtn").addEventListener("click",function(){
+    var now=new Date(), nowF=now.getHours()*60+now.getMinutes()+now.getSeconds()/60;
+    var ci=curIdx(nowF,effBlocks());
+    if(ci<0) return;
+    var base=Math.min(ci,LEN-1);
+    setShift({idx:Math.max(base-1,0),t0:nowF});
+  });
+  $("autoBtn").addEventListener("click",function(){setShift(null);});
+
   function renderSessions(now){
     var todayKey=dateKey(now), html="";
     for(var i=0;i<CLASS_DATES.length;i++){
       var k=CLASS_DATES[i], p=k.split("-");
-      var end=new Date(+p[0],+p[1]-1,+p[2],17,45,0);
+      var end=new Date(+p[0],+p[1]-1,+p[2],23,59,59);
       var cls="chip";
       if(k===todayKey) cls+=" today";
       else if(now>end) cls+=" done";
@@ -307,25 +389,27 @@
     $("sessions").innerHTML=html;
   }
 
-  function renderTimeline(nowMin,isToday){
+  function renderTimeline(nowF,isToday,eff,ci){
     var html='<h2>연구조교 타임테이블</h2><ul class="timeline">';
-    for(var i=0;i<SCHEDULE.length;i++){
+    for(var i=0;i<LEN;i++){
       var b=SCHEDULE[i], cls="block", tag="";
+      var shifted = shift && i>=shift.idx && Math.round(eff[i].s)!==b.s;
       if(isToday){
-        if(nowMin>=b.e) cls+=" past";
-        else if(nowMin>=b.s){
-          cls+=" now"; tag='<span class="btag live">진행 중</span>';
-        }else if(b.s-nowMin<=WARN[0] && b.s-nowMin>0){
-          cls+=" next"; tag='<span class="btag soon">'+(b.s-nowMin)+'분 후 시작</span>';
+        if(i<ci || ci===LEN) cls+=" past";
+        else if(i===ci){cls+=" now"; tag='<span class="btag live">진행 중</span>';}
+        else if(ci>=-1 && eff[i].s-nowF>0 && eff[i].s-nowF<=WARN[0]){
+          cls+=" next"; tag='<span class="btag soon">'+Math.ceil(eff[i].s-nowF)+'분 후 시작</span>';
         }
       }
-      html+='<li class="'+cls+'"><div class="bhead"><span class="btime">'+fmtHM(b.s)+'–'+fmtHM(b.e)+'</span><span class="bname">'+b.name+'</span><span class="btag">'+b.tag+'</span>'+tag+'</div><ul class="tasks">';
+      var timeTxt=fmtHM(eff[i].s)+'–'+fmtHM(eff[i].e);
+      var adjTag=shifted?'<span class="btag soon">조정 · 원래 '+fmtHM(b.s)+'</span>':'';
+      html+='<li class="'+cls+'"><div class="bhead"><span class="btime">'+timeTxt+'</span><span class="bname">'+b.name+'</span><span class="btag">'+b.tag+'</span>'+adjTag+tag+'</div><ul class="tasks">';
       for(var j=0;j<b.tasks.length;j++){
         html+='<li'+(b.tasks[j].k?' class="key"':'')+'>'+b.tasks[j].t+'</li>';
       }
       html+='</ul>';
-      if(isToday && nowMin>=b.s && nowMin<b.e){
-        var pct=Math.min(100,Math.round((nowMin-b.s)/(b.e-b.s)*100));
+      if(isToday && i===ci){
+        var pct=Math.max(0,Math.min(100,Math.round((nowF-eff[i].s)/(eff[i].e-eff[i].s)*100)));
         html+='<div class="prog"><i style="width:'+pct+'%"></i></div>';
       }
       html+='</li>';
@@ -350,6 +434,15 @@
     return d===0?"D-DAY":"D-"+d;
   }
 
+  // 조정으로 전체 일정이 얼마나 밀렸/당겨졌는지
+  function shiftNote(eff){
+    if(!shift) return "";
+    var delta=Math.round(eff[LEN-1].e-SCHEDULE[LEN-1].e);
+    if(delta>0) return " · 원래보다 "+delta+"분 늦게 진행 중";
+    if(delta<0) return " · 원래보다 "+(-delta)+"분 빠르게 진행 중";
+    return " · 일정 조정됨";
+  }
+
   function tick(){
     var now=new Date();
     $("clock").textContent=pad(now.getHours())+":"+pad(now.getMinutes())+":"+pad(now.getSeconds());
@@ -358,73 +451,60 @@
 
     var nc=nextClassDate(now);
 
-    // 종강 이후
-    if(!nc){
+    if(!nc){ // 종강 이후
+      $("ctrl").hidden=true;
       setBanner("상태","🎓 종강했습니다!","2026.08.15 수업을 끝으로 모든 일정이 종료되었습니다. 수고 많으셨습니다!");
       $("content").innerHTML='<div class="bigstate"><div class="big">전 일정 종료</div><div class="desc">역학과에너지 토요일 수업 · 연구조교 임무 완수</div></div>';
       return;
     }
 
-    var todayKey=dateKey(now), isClassToday=(todayKey===nc.key && dateKey(now)===nc.key && now.getDay()===6 && todayKey===nc.key);
-    isClassToday=(todayKey===nc.key);
-    var nowMin=now.getHours()*60+now.getMinutes();
+    var isClassToday=(dateKey(now)===nc.key);
+    var nowF=now.getHours()*60+now.getMinutes()+now.getSeconds()/60;
+    var eff=effBlocks();
 
-    if(!isClassToday){
-      // 수업일 아님 → 다음 수업 카운트다운
+    if(!isClassToday){ // 수업일 아님 → 다음 수업 카운트다운
+      $("ctrl").hidden=true;
       var remain=CLASS_DATES.length-nc.idx;
       setBanner("다음 수업",
         nc.key.replace(/-/g,".")+" (토) "+ddayText(now,nc.date),
         "남은 수업 "+remain+"회 · 13:30까지 405호 뒤 복도 위치"+(nc.key===LAST?" · 마지막 수업(종강)입니다":""));
-      renderTimeline(-1,false);
+      renderTimeline(-1,false,eff,-2);
       return;
     }
 
     // ── 오늘이 수업일 ──
-    var cur=null,next=null;
-    for(var i=0;i<SCHEDULE.length;i++){
-      if(nowMin>=SCHEDULE[i].s && nowMin<SCHEDULE[i].e){cur=SCHEDULE[i];}
-      if(SCHEDULE[i].s>nowMin && !next){next=SCHEDULE[i];}
-    }
+    $("ctrl").hidden=false;
+    $("autoBtn").classList.toggle("armed",!shift);
+    var ci=curIdx(nowF,eff);
 
-    if(nowMin<SCHEDULE[0].s){
-      var until=SCHEDULE[0].s-nowMin;
+    if(ci===-1){ // 첫 단계 전
+      var until=Math.ceil(eff[0].s-nowF);
       if(until<=WARN[0]){
         setBanner("예고","⏰ "+until+"분 후 「"+SCHEDULE[0].name+"」 시작",SCHEDULE[0].tasks[0].t,"alert");
-        maybeBeep("pre-first-"+ (until<=WARN[1]?"5":"10"));
+        maybeBeep("pre-0-"+(until<=WARN[1]?"5":"10"));
       }else{
-        setBanner("오늘 수업일","오늘은 수업일입니다 ("+(nc.idx+1)+"회차"+(nc.key===LAST?" · 종강":"")+")",fmtHM(SCHEDULE[0].s)+" 「"+SCHEDULE[0].name+"」부터 시작 · "+until+"분 남음");
+        setBanner("오늘 수업일","오늘은 수업일입니다 ("+(nc.idx+1)+"회차"+(nc.key===LAST?" · 종강":"")+")",fmtHM(eff[0].s)+" 「"+SCHEDULE[0].name+"」부터 시작 · "+until+"분 남음");
       }
-    }else if(cur){
+    }else if(ci<LEN){ // 진행 중
+      var cur=SCHEDULE[ci], remainMin=Math.ceil(eff[ci].e-nowF);
       var mode="live", extra="";
-      if(next){
-        var gap=next.s-nowMin;
+      if(ci+1<LEN){
+        var gap=eff[ci+1].s-nowF;
         if(gap<=WARN[0]){
           mode="alert";
-          extra=" · ⏰ "+gap+"분 후 「"+next.name+"」";
-          maybeBeep(next.name+"-"+(gap<=WARN[1]?"5":"10"));
+          extra=" · ⏰ "+Math.ceil(gap)+"분 후 「"+SCHEDULE[ci+1].name+"」";
+          maybeBeep("pre-"+(ci+1)+"-"+(gap<=WARN[1]?"5":"10"));
         }else{
-          extra=" · 다음: "+fmtHM(next.s)+" "+next.name;
+          extra=" · 다음: "+fmtHM(eff[ci+1].s)+" "+SCHEDULE[ci+1].name;
         }
       }
       var mainTask=cur.tasks.filter(function(t){return t.k;}).map(function(t){return t.t;}).join(" / ")||cur.tasks[0].t;
-      setBanner("지금 할 일 · "+cur.name+" ("+fmtHM(cur.s)+"–"+fmtHM(cur.e)+")",mainTask,(cur.e-nowMin)+"분 남음"+extra,mode);
-    }else if(next){
-      var g2=next.s-nowMin;
-      if(g2<=WARN[0]){
-        setBanner("예고","⏰ "+g2+"분 후 「"+next.name+"」 시작",next.tasks[0].t,"alert");
-        maybeBeep(next.name+"-"+(g2<=WARN[1]?"5":"10"));
-      }else{
-        setBanner("대기","다음 임무: "+fmtHM(next.s)+" 「"+next.name+"」",g2+"분 남음");
-      }
-    }else{
+      setBanner("지금 할 일 · "+cur.name+" ("+fmtHM(eff[ci].s)+"–"+fmtHM(eff[ci].e)+")",mainTask,remainMin+"분 남음"+extra+shiftNote(eff),mode);
+    }else{ // 전체 종료
       setBanner("오늘 임무 종료","✅ 오늘 연구조교 임무가 모두 끝났습니다",nc.key===LAST?"종강입니다. 한 학기 동안 수고하셨습니다! 🎓":"다음 주 토요일에 만나요. 수고하셨습니다!","live");
     }
 
-    renderTimeline(nowMin,true);
-  }
-
-  function maybeBeep(key){
-    if(key!==lastBeepKey){lastBeepKey=key; beep();}
+    renderTimeline(nowF,true,eff,ci);
   }
 
   tick();
