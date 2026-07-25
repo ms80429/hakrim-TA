@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>연구조교 일정판 — 역학과에너지 (토)</title>
+<style>
+  :root{
+    --board:#20372F;        /* 칠판 짙은 녹색 */
+    --board-deep:#182B24;
+    --chalk:#F1EDE2;        /* 분필 흰색 */
+    --chalk-dim:#A9B5AC;    /* 흐린 분필 */
+    --chalk-yellow:#E9C765; /* 노란 분필 */
+    --chalk-red:#E08A7A;    /* 붉은 분필 (경보) */
+    --line:rgba(241,237,226,.18);
+    --now:#7FD1A7;          /* 진행중 표시 */
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{
+    background:
+      radial-gradient(1200px 600px at 20% -10%, rgba(255,255,255,.045), transparent 60%),
+      radial-gradient(900px 500px at 90% 110%, rgba(0,0,0,.25), transparent 60%),
+      var(--board);
+    color:var(--chalk);
+    font-family:"Pretendard","Malgun Gothic","맑은 고딕","Apple SD Gothic Neo",sans-serif;
+    line-height:1.55;
+    min-height:100%;
+    padding:28px 18px 60px;
+  }
+  .frame{max-width:860px; margin:0 auto;}
+
+  /* 상단: 수업 헤더 */
+  header{
+    border-bottom:2px solid var(--line);
+    padding-bottom:18px; margin-bottom:22px;
+    display:flex; flex-wrap:wrap; gap:14px; align-items:flex-end; justify-content:space-between;
+  }
+  .eyebrow{
+    font-size:12px; letter-spacing:.22em; color:var(--chalk-dim);
+    text-transform:uppercase; margin-bottom:6px;
+  }
+  h1{font-size:clamp(20px,4vw,28px); font-weight:800; letter-spacing:-.01em;}
+  h1 .role{color:var(--chalk-yellow);}
+  .meta{font-size:13px; color:var(--chalk-dim); margin-top:4px;}
+
+  /* 시계 */
+  .clock{text-align:right;}
+  .clock .time{
+    font-variant-numeric:tabular-nums;
+    font-size:clamp(34px,7vw,52px); font-weight:800; letter-spacing:.02em;
+    line-height:1;
+  }
+  .clock .date{font-size:13px; color:var(--chalk-dim); margin-top:6px;}
+
+  /* 상태 배너 */
+  .banner{
+    border:1.5px dashed var(--line);
+    border-radius:10px;
+    padding:16px 18px; margin-bottom:26px;
+    background:rgba(0,0,0,.14);
+  }
+  .banner .label{font-size:12px; letter-spacing:.18em; color:var(--chalk-dim); margin-bottom:6px;}
+  .banner .msg{font-size:clamp(16px,3vw,20px); font-weight:700;}
+  .banner .sub{font-size:13px; color:var(--chalk-dim); margin-top:6px;}
+  .banner.alert{
+    border-color:var(--chalk-red);
+    background:rgba(224,138,122,.10);
+    animation:pulse 1.6s ease-in-out infinite;
+  }
+  .banner.alert .msg{color:var(--chalk-red);}
+  .banner.live .msg{color:var(--now);}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(224,138,122,.0);}50%{box-shadow:0 0 0 6px rgba(224,138,122,.12);}}
+  @media (prefers-reduced-motion:reduce){.banner.alert{animation:none;}}
+
+  .soundbtn{
+    margin-top:10px; display:inline-block;
+    background:none; border:1px solid var(--line); color:var(--chalk-dim);
+    font-size:12px; padding:6px 12px; border-radius:6px; cursor:pointer;
+    font-family:inherit;
+  }
+  .soundbtn:hover,.soundbtn:focus-visible{color:var(--chalk); border-color:var(--chalk-dim); outline:none;}
+  .soundbtn.on{color:var(--chalk-yellow); border-color:var(--chalk-yellow);}
+
+  /* 남은 수업 카운터 */
+  .sessions{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:30px;}
+  .chip{
+    border:1px solid var(--line); border-radius:8px;
+    padding:8px 14px; font-size:13px; color:var(--chalk-dim);
+    font-variant-numeric:tabular-nums;
+  }
+  .chip b{color:var(--chalk); font-weight:700;}
+  .chip.done{opacity:.45; text-decoration:line-through;}
+  .chip.today{border-color:var(--chalk-yellow); color:var(--chalk-yellow);}
+  .chip.today b{color:var(--chalk-yellow);}
+  .chip.last b{color:var(--chalk-red);}
+
+  /* 타임라인 */
+  h2{
+    font-size:14px; letter-spacing:.2em; color:var(--chalk-dim);
+    font-weight:700; margin-bottom:14px;
+  }
+  .timeline{list-style:none; border-left:2px solid var(--line); padding-left:0;}
+  .block{
+    position:relative;
+    padding:14px 16px 14px 26px;
+    border-bottom:1px solid rgba(241,237,226,.07);
+  }
+  .block::before{
+    content:""; position:absolute; left:-6px; top:22px;
+    width:10px; height:10px; border-radius:50%;
+    background:var(--board); border:2px solid var(--chalk-dim);
+  }
+  .block.past{opacity:.42;}
+  .block.past::before{background:var(--chalk-dim);}
+  .block.now{
+    background:rgba(127,209,167,.07);
+    border-left:3px solid var(--now); margin-left:-2px;
+  }
+  .block.now::before{border-color:var(--now); background:var(--now); left:-7px;}
+  .block.next::before{border-color:var(--chalk-yellow);}
+  .bhead{display:flex; flex-wrap:wrap; gap:8px 14px; align-items:baseline;}
+  .btime{
+    font-variant-numeric:tabular-nums; font-weight:800; font-size:15px;
+    color:var(--chalk-yellow); min-width:112px;
+  }
+  .block.now .btime{color:var(--now);}
+  .bname{font-weight:700; font-size:16px;}
+  .btag{
+    font-size:11px; border:1px solid var(--line); border-radius:4px;
+    padding:1px 7px; color:var(--chalk-dim); letter-spacing:.08em;
+  }
+  .btag.live{border-color:var(--now); color:var(--now);}
+  .btag.soon{border-color:var(--chalk-yellow); color:var(--chalk-yellow);}
+  .tasks{margin-top:8px; padding-left:2px; list-style:none;}
+  .tasks li{
+    font-size:14px; color:var(--chalk); padding:2.5px 0 2.5px 18px; position:relative;
+  }
+  .tasks li::before{content:"›"; position:absolute; left:2px; color:var(--chalk-dim);}
+  .tasks li.key{color:var(--chalk-yellow); font-weight:600;}
+  .tasks li.key::before{content:"★"; color:var(--chalk-yellow); font-size:11px; top:5px;}
+
+  /* 진행바 */
+  .prog{height:4px; background:rgba(0,0,0,.3); border-radius:2px; margin-top:10px; overflow:hidden;}
+  .prog i{display:block; height:100%; background:var(--now); border-radius:2px; transition:width 1s linear;}
+
+  /* 종강/휴일 대형 표시 */
+  .bigstate{
+    text-align:center; padding:70px 10px 40px;
+  }
+  .bigstate .big{font-size:clamp(30px,7vw,48px); font-weight:800; color:var(--chalk-yellow); margin-bottom:14px;}
+  .bigstate .desc{color:var(--chalk-dim); font-size:15px;}
+  .bigstate .count{
+    font-variant-numeric:tabular-nums; font-size:clamp(22px,5vw,34px);
+    font-weight:800; margin-top:18px;
+  }
+
+  footer{
+    margin-top:36px; padding-top:14px; border-top:1px solid var(--line);
+    font-size:12px; color:var(--chalk-dim);
+  }
+</style>
+</head>
+<body>
+<div class="frame">
+
+  <header>
+    <div>
+      <div class="eyebrow">삼부 405호 · 토요일</div>
+      <h1>역학과에너지 <span class="role">연구조교</span> 일정판</h1>
+      <div class="meta">고세종T · 위치: 405호 뒤 복도 고정 · 종강 2026.08.15</div>
+    </div>
+    <div class="clock">
+      <div class="time" id="clock">--:--:--</div>
+      <div class="date" id="cdate">-</div>
+    </div>
+  </header>
+
+  <div class="banner" id="banner">
+    <div class="label" id="bannerLabel">상태</div>
+    <div class="msg" id="bannerMsg">불러오는 중…</div>
+    <div class="sub" id="bannerSub"></div>
+    <button class="soundbtn" id="soundBtn" type="button">🔕 알림음 꺼짐 — 눌러서 켜기</button>
+  </div>
+
+  <div class="sessions" id="sessions"></div>
+
+  <div id="content"></div>
+
+  <footer>10분 전·5분 전 자동 예고 / 진행 중 임무 자동 하이라이트 · 조교매뉴얼 0724초안 기준</footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ── 수업일 (매주 토, 2026-08-15 종강) ──
+  var CLASS_DATES = ["2026-07-25","2026-08-01","2026-08-08","2026-08-15"];
+  var LAST = "2026-08-15";
+
+  // ── 연구조교 타임테이블 (분 단위, 자정 기준) ──
+  function m(h,mm){return h*60+mm;}
+  var SCHEDULE = [
+    { s:m(13,30), e:m(14,10), name:"수업 전 · 테스트", tag:"위치 고정",
+      tasks:[
+        {t:"405호 뒤 복도 위치 고정",k:false},
+        {t:"판서·강의노트 확인하며 질문 대비 & 강의 관찰",k:true}
+      ]},
+    { s:m(14,10), e:m(14,20), name:"시간 알림", tag:"14:10",
+      tasks:[
+        {t:"행정조교 · 고세종T에게 시간 알림 (14:10)",k:true},
+        {t:"강의 관찰 계속",k:false}
+      ]},
+    { s:m(14,20), e:m(14,30), name:"답안지 수거 · 수업 준비", tag:"10분",
+      tasks:[
+        {t:"서술형 답안지 인수 (~14:30)",k:true}
+      ]},
+    { s:m(14,30), e:m(15,0), name:"1교시", tag:"30분",
+      tasks:[
+        {t:"서술형 문항 채점",k:true},
+        {t:"임무 완료 시 판서·강의노트 확인, 질문 대비 & 강의 관찰",k:false}
+      ]},
+    { s:m(15,0),  e:m(15,10), name:"쉬는시간", tag:"10분",
+      tasks:[
+        {t:"질의응답",k:true}
+      ]},
+    { s:m(15,10), e:m(16,0), name:"2교시", tag:"50분",
+      tasks:[
+        {t:"서술형 답안지 채점 완료",k:true},
+        {t:"답안지 개수 최종 확인 후 행정조교 전달",k:true}
+      ]},
+    { s:m(16,0),  e:m(16,10), name:"쉬는시간", tag:"10분",
+      tasks:[
+        {t:"질의응답",k:true}
+      ]},
+    { s:m(16,10), e:m(16,50), name:"3교시", tag:"40분",
+      tasks:[
+        {t:"강의 내용 종합",k:true},
+        {t:"강의 피드백 사항 작성",k:true},
+        {t:"질문 대비",k:false}
+      ]},
+    { s:m(16,50), e:m(17,0), name:"수업 종료 후 쉬는시간", tag:"10분",
+      tasks:[
+        {t:"질의응답 대기",k:true},
+        {t:"지각생 테스트 감독",k:true}
+      ]},
+    { s:m(17,0),  e:m(17,45), name:"당일 수업 질의응답", tag:"~45분",
+      tasks:[
+        {t:"당일 수업 질의응답",k:true},
+        {t:"지각생 답안지 서술형 채점",k:true}
+      ]}
+  ];
+
+  var WARN=[10,5]; // 분 전 예고
+  var soundOn=false, audioCtx=null, lastBeepKey="";
+
+  var $=function(id){return document.getElementById(id);};
+  var pad=function(n){return (n<10?"0":"")+n;};
+  var DAYS=["일","월","화","수","목","금","토"];
+
+  function dateKey(d){
+    return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+  }
+  function fmtHM(min){return pad(Math.floor(min/60))+":"+pad(min%60);}
+
+  function nextClassDate(now){
+    for(var i=0;i<CLASS_DATES.length;i++){
+      var p=CLASS_DATES[i].split("-");
+      var end=new Date(+p[0],+p[1]-1,+p[2],17,45,0);
+      if(now<=end) return {key:CLASS_DATES[i], date:new Date(+p[0],+p[1]-1,+p[2],13,0,0), idx:i};
+    }
+    return null;
+  }
+
+  function beep(){
+    if(!soundOn) return;
+    try{
+      audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();
+      var o=audioCtx.createOscillator(), g=audioCtx.createGain();
+      o.frequency.value=880; o.type="sine";
+      g.gain.setValueAtTime(0.001,audioCtx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.25,audioCtx.currentTime+0.02);
+      g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.6);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(); o.stop(audioCtx.currentTime+0.65);
+    }catch(e){}
+  }
+
+  $("soundBtn").addEventListener("click",function(){
+    soundOn=!soundOn;
+    this.classList.toggle("on",soundOn);
+    this.textContent=soundOn?"🔔 알림음 켜짐":"🔕 알림음 꺼짐 — 눌러서 켜기";
+    if(soundOn) beep();
+  });
+
+  function renderSessions(now){
+    var todayKey=dateKey(now), html="";
+    for(var i=0;i<CLASS_DATES.length;i++){
+      var k=CLASS_DATES[i], p=k.split("-");
+      var end=new Date(+p[0],+p[1]-1,+p[2],17,45,0);
+      var cls="chip";
+      if(k===todayKey) cls+=" today";
+      else if(now>end) cls+=" done";
+      if(k===LAST) cls+=" last";
+      html+='<div class="'+cls+'">'+(i+1)+'회차 <b>'+p[1]+'.'+p[2]+'</b>'+(k===LAST?" · 종강":"")+(k===todayKey?" · 오늘":"")+'</div>';
+    }
+    $("sessions").innerHTML=html;
+  }
+
+  function renderTimeline(nowMin,isToday){
+    var html='<h2>연구조교 타임테이블</h2><ul class="timeline">';
+    for(var i=0;i<SCHEDULE.length;i++){
+      var b=SCHEDULE[i], cls="block", tag="";
+      if(isToday){
+        if(nowMin>=b.e) cls+=" past";
+        else if(nowMin>=b.s){
+          cls+=" now"; tag='<span class="btag live">진행 중</span>';
+        }else if(b.s-nowMin<=WARN[0] && b.s-nowMin>0){
+          cls+=" next"; tag='<span class="btag soon">'+(b.s-nowMin)+'분 후 시작</span>';
+        }
+      }
+      html+='<li class="'+cls+'"><div class="bhead"><span class="btime">'+fmtHM(b.s)+'–'+fmtHM(b.e)+'</span><span class="bname">'+b.name+'</span><span class="btag">'+b.tag+'</span>'+tag+'</div><ul class="tasks">';
+      for(var j=0;j<b.tasks.length;j++){
+        html+='<li'+(b.tasks[j].k?' class="key"':'')+'>'+b.tasks[j].t+'</li>';
+      }
+      html+='</ul>';
+      if(isToday && nowMin>=b.s && nowMin<b.e){
+        var pct=Math.min(100,Math.round((nowMin-b.s)/(b.e-b.s)*100));
+        html+='<div class="prog"><i style="width:'+pct+'%"></i></div>';
+      }
+      html+='</li>';
+    }
+    html+='</ul>';
+    $("content").innerHTML=html;
+  }
+
+  function setBanner(label,msg,sub,mode){
+    var b=$("banner");
+    b.classList.remove("alert","live");
+    if(mode) b.classList.add(mode);
+    $("bannerLabel").textContent=label;
+    $("bannerMsg").textContent=msg;
+    $("bannerSub").textContent=sub||"";
+  }
+
+  function ddayText(now,target){
+    var a=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+    var b=new Date(target.getFullYear(),target.getMonth(),target.getDate());
+    var d=Math.round((b-a)/86400000);
+    return d===0?"D-DAY":"D-"+d;
+  }
+
+  function tick(){
+    var now=new Date();
+    $("clock").textContent=pad(now.getHours())+":"+pad(now.getMinutes())+":"+pad(now.getSeconds());
+    $("cdate").textContent=now.getFullYear()+"."+pad(now.getMonth()+1)+"."+pad(now.getDate())+" ("+DAYS[now.getDay()]+")";
+    renderSessions(now);
+
+    var nc=nextClassDate(now);
+
+    // 종강 이후
+    if(!nc){
+      setBanner("상태","🎓 종강했습니다!","2026.08.15 수업을 끝으로 모든 일정이 종료되었습니다. 수고 많으셨습니다!");
+      $("content").innerHTML='<div class="bigstate"><div class="big">전 일정 종료</div><div class="desc">역학과에너지 토요일 수업 · 연구조교 임무 완수</div></div>';
+      return;
+    }
+
+    var todayKey=dateKey(now), isClassToday=(todayKey===nc.key && dateKey(now)===nc.key && now.getDay()===6 && todayKey===nc.key);
+    isClassToday=(todayKey===nc.key);
+    var nowMin=now.getHours()*60+now.getMinutes();
+
+    if(!isClassToday){
+      // 수업일 아님 → 다음 수업 카운트다운
+      var remain=CLASS_DATES.length-nc.idx;
+      setBanner("다음 수업",
+        nc.key.replace(/-/g,".")+" (토) "+ddayText(now,nc.date),
+        "남은 수업 "+remain+"회 · 13:30까지 405호 뒤 복도 위치"+(nc.key===LAST?" · 마지막 수업(종강)입니다":""));
+      renderTimeline(-1,false);
+      return;
+    }
+
+    // ── 오늘이 수업일 ──
+    var cur=null,next=null;
+    for(var i=0;i<SCHEDULE.length;i++){
+      if(nowMin>=SCHEDULE[i].s && nowMin<SCHEDULE[i].e){cur=SCHEDULE[i];}
+      if(SCHEDULE[i].s>nowMin && !next){next=SCHEDULE[i];}
+    }
+
+    if(nowMin<SCHEDULE[0].s){
+      var until=SCHEDULE[0].s-nowMin;
+      if(until<=WARN[0]){
+        setBanner("예고","⏰ "+until+"분 후 「"+SCHEDULE[0].name+"」 시작",SCHEDULE[0].tasks[0].t,"alert");
+        maybeBeep("pre-first-"+ (until<=WARN[1]?"5":"10"));
+      }else{
+        setBanner("오늘 수업일","오늘은 수업일입니다 ("+(nc.idx+1)+"회차"+(nc.key===LAST?" · 종강":"")+")",fmtHM(SCHEDULE[0].s)+" 「"+SCHEDULE[0].name+"」부터 시작 · "+until+"분 남음");
+      }
+    }else if(cur){
+      var mode="live", extra="";
+      if(next){
+        var gap=next.s-nowMin;
+        if(gap<=WARN[0]){
+          mode="alert";
+          extra=" · ⏰ "+gap+"분 후 「"+next.name+"」";
+          maybeBeep(next.name+"-"+(gap<=WARN[1]?"5":"10"));
+        }else{
+          extra=" · 다음: "+fmtHM(next.s)+" "+next.name;
+        }
+      }
+      var mainTask=cur.tasks.filter(function(t){return t.k;}).map(function(t){return t.t;}).join(" / ")||cur.tasks[0].t;
+      setBanner("지금 할 일 · "+cur.name+" ("+fmtHM(cur.s)+"–"+fmtHM(cur.e)+")",mainTask,(cur.e-nowMin)+"분 남음"+extra,mode);
+    }else if(next){
+      var g2=next.s-nowMin;
+      if(g2<=WARN[0]){
+        setBanner("예고","⏰ "+g2+"분 후 「"+next.name+"」 시작",next.tasks[0].t,"alert");
+        maybeBeep(next.name+"-"+(g2<=WARN[1]?"5":"10"));
+      }else{
+        setBanner("대기","다음 임무: "+fmtHM(next.s)+" 「"+next.name+"」",g2+"분 남음");
+      }
+    }else{
+      setBanner("오늘 임무 종료","✅ 오늘 연구조교 임무가 모두 끝났습니다",nc.key===LAST?"종강입니다. 한 학기 동안 수고하셨습니다! 🎓":"다음 주 토요일에 만나요. 수고하셨습니다!","live");
+    }
+
+    renderTimeline(nowMin,true);
+  }
+
+  function maybeBeep(key){
+    if(key!==lastBeepKey){lastBeepKey=key; beep();}
+  }
+
+  tick();
+  setInterval(tick,1000);
+})();
+</script>
+</body>
+</html>
