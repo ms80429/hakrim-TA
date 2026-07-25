@@ -94,6 +94,9 @@
   .ctrl button:active{transform:translateY(1px);}
   .ctrl button.auto{border-style:dashed; color:var(--chalk-dim); font-weight:600;}
   .ctrl button.auto.armed{border-color:var(--now); color:var(--now); border-style:solid;}
+  .ctrl button.off{border-color:rgba(224,138,122,.55); color:var(--chalk-red); flex:0 1 auto;}
+  .ctrl button.off:hover,.ctrl button.off:focus-visible{border-color:var(--chalk-red); color:var(--chalk-red);}
+  .ctrl button.off.back{border-color:var(--line); color:var(--chalk-dim);}
   .manualbadge{
     display:inline-block; font-size:11px; letter-spacing:.12em;
     border:1px solid var(--chalk-yellow); color:var(--chalk-yellow);
@@ -205,6 +208,7 @@
     <button type="button" id="prevBtn">◀ 이전 단계</button>
     <button type="button" id="nextBtn">다음 단계 ▶</button>
     <button type="button" id="autoBtn" class="auto armed">⟲ 원래 시간표</button>
+    <button type="button" id="offBtn" class="off">🏠 퇴근</button>
   </div>
 
   <div class="sessions" id="sessions"></div>
@@ -334,6 +338,21 @@
     lastBeepKey="";
     tick();
   }
+
+  // ── 퇴근 ──
+  var dayDone=false;
+  function doneKey(now){return "ta-done-"+dateKey(now);}
+  (function(){ dayDone = load(doneKey(new Date()))==="1"; })();
+  function setDone(v){
+    dayDone=v;
+    store(doneKey(new Date()), v?"1":null);
+    lastBeepKey="";
+    tick();
+  }
+  $("offBtn").addEventListener("click",function(){
+    if(!dayDone && !window.confirm("퇴근할까요? 오늘 일정 안내가 종료됩니다.")) return;
+    setDone(!dayDone);
+  });
 
   // 조정 반영된 시간표: shift.idx부터 t0 기준으로 원래 소요시간을 연쇄 적용
   function effBlocks(){
@@ -475,6 +494,16 @@
     // ── 오늘이 수업일 ──
     $("ctrl").hidden=false;
     $("autoBtn").classList.toggle("armed",!shift);
+    $("prevBtn").hidden=$("nextBtn").hidden=$("autoBtn").hidden=dayDone;
+    $("offBtn").textContent=dayDone?"↩ 퇴근 취소":"🏠 퇴근";
+    $("offBtn").classList.toggle("back",dayDone);
+
+    if(dayDone){ // 퇴근 완료
+      setBanner("퇴근","🏠 퇴근 완료",nc.key===LAST?"오늘로 종강! 한 학기 동안 정말 수고하셨습니다 🎓":"오늘도 수고하셨습니다. 다음 수업까지 푹 쉬세요!","live");
+      $("content").innerHTML='<div class="bigstate"><div class="big">오늘 근무 종료</div><div class="desc">'+(nc.idx+1)+'회차 연구조교 임무 완료 · '+nc.key.replace(/-/g,".")+'</div></div>';
+      return;
+    }
+
     var ci=curIdx(nowF,eff);
 
     if(ci===-1){ // 첫 단계 전
@@ -501,7 +530,7 @@
       var mainTask=cur.tasks.filter(function(t){return t.k;}).map(function(t){return t.t;}).join(" / ")||cur.tasks[0].t;
       setBanner("지금 할 일 · "+cur.name+" ("+fmtHM(eff[ci].s)+"–"+fmtHM(eff[ci].e)+")",mainTask,remainMin+"분 남음"+extra+shiftNote(eff),mode);
     }else{ // 전체 종료
-      setBanner("오늘 임무 종료","✅ 오늘 연구조교 임무가 모두 끝났습니다",nc.key===LAST?"종강입니다. 한 학기 동안 수고하셨습니다! 🎓":"다음 주 토요일에 만나요. 수고하셨습니다!","live");
+      setBanner("오늘 임무 종료","✅ 오늘 연구조교 임무가 모두 끝났습니다",(nc.key===LAST?"종강입니다. 한 학기 동안 수고하셨습니다! 🎓":"다음 주 토요일에 만나요. 수고하셨습니다!")+" · 🏠 퇴근 버튼으로 마무리하세요","live");
     }
 
     renderTimeline(nowF,true,eff,ci);
